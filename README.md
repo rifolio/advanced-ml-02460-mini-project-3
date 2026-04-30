@@ -102,3 +102,8 @@ Managed with `uv`. See `pyproject.toml`.
 ```bash
 uv run main.py --epochs 500 --hidden-dim 512 --latent-dim 128 --beta 0.1
 ```
+
+| | Novel | Unique | Novel+Unique |
+|---|---|---|---|
+| Baseline | 99.9% | 99.7% | 99.6% |
+| GraphVAE | 99.9% | 20.2% | 20.1% |
