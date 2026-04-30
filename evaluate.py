@@ -115,4 +115,6 @@ def plot_statistics(
     plt.tight_layout()
     os.makedirs("results", exist_ok=True)
     plt.savefig("results/statistics.png", dpi=150, bbox_inches="tight")
-    plt.show()
+    if plt.get_backend().lower() != "agg":
+        plt.show()
+    plt.close(fig)
