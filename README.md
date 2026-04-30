@@ -96,3 +96,9 @@ Fill in the `GraphVAE(...)` constructor arguments once model hyperparameters are
 ## Dependencies
 
 Managed with `uv`. See `pyproject.toml`.
+
+
+# Current results
+```bash
+uv run main.py --epochs 500 --hidden-dim 512 --latent-dim 128 --beta 0.1
+```
