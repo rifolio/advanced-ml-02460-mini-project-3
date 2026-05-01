@@ -14,6 +14,18 @@ def main():
     parser.add_argument("--hidden-dim", type=int, default=64)
     parser.add_argument("--latent-dim", type=int, default=32)
     parser.add_argument("--beta", type=float, default=1.0)
+    parser.add_argument(
+        "--kl-warmup-epochs",
+        type=int,
+        default=None,
+        help="Linearly ramp KL weight from 0 to --beta; default: max(1, epochs//2). "
+        "Use 0 to disable (constant beta).",
+    )
+    parser.add_argument(
+        "--deterministic-sample",
+        action="store_true",
+        help="Threshold decoder probs at eval (old behavior); default is Bernoulli sampling.",
+    )
     parser.add_argument("--samples", type=int, default=1000)
     args = parser.parse_args()
 
@@ -34,11 +46,26 @@ def main():
         latent_dim=args.latent_dim,
         max_nodes=MAX_NODES,
     )
-    model = train(model, train_ds, epochs=args.epochs, lr=args.lr, beta=args.beta)
+    kl_warmup = (
+        args.kl_warmup_epochs
+        if args.kl_warmup_epochs is not None
+        else max(1, args.epochs // 2)
+    )
+    model = train(
+        model,
+        train_ds,
+        epochs=args.epochs,
+        lr=args.lr,
+        beta=args.beta,
+        kl_warmup_epochs=kl_warmup,
+    )
+    model.fit_node_counts(train_ds)
 
     print(f"\n=== Sampling {N_SAMPLES} graphs from each model ===")
     baseline_samples = [baseline.sample() for _ in range(N_SAMPLES)]
-    model_samples = model.sample(n=N_SAMPLES)
+    model_samples = model.sample(
+        n=N_SAMPLES, stochastic=not args.deterministic_sample
+    )
 
     print("\n=== Metrics ===")
     baseline_metrics = compute_metrics(baseline_samples, train_adjs)
