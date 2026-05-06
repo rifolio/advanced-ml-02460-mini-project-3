@@ -1,7 +1,43 @@
+import networkx as nx
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, global_mean_pool
+
+
+def _ensure_connected(adj: torch.Tensor, probs: torch.Tensor) -> torch.Tensor:
+    """Add minimum edges to connect any isolated components, picking highest-prob cross-component edges."""
+    result = adj.clone()
+    binary = result.detach().cpu().numpy()
+    prob = probs.detach().cpu().numpy()
+
+    active = np.where(binary.any(axis=1))[0]
+    if len(active) < 2:
+        return result
+
+    G = nx.Graph()
+    G.add_nodes_from(active.tolist())
+    for i in range(len(active)):
+        for j in range(i + 1, len(active)):
+            if binary[active[i], active[j]] > 0:
+                G.add_edge(int(active[i]), int(active[j]))
+
+    components = list(nx.connected_components(G))
+    while len(components) > 1:
+        best_prob, best_u, best_v = -1.0, -1, -1
+        for u in components[0]:
+            for k in range(1, len(components)):
+                for v in components[k]:
+                    p = float(prob[u, v])
+                    if p > best_prob:
+                        best_prob, best_u, best_v = p, u, v
+        result[best_u, best_v] = 1.0
+        result[best_v, best_u] = 1.0
+        G.add_edge(best_u, best_v)
+        components = list(nx.connected_components(G))
+
+    return result
 
 
 class GNNEncoder(nn.Module):
@@ -15,7 +51,7 @@ class GNNEncoder(nn.Module):
     def forward(self, x, edge_index, batch):
         h = F.relu(self.conv1(x, edge_index))
         h = F.relu(self.conv2(h, edge_index))
-        h_graph = global_mean_pool(h, batch)  # (B, hidden_dim)
+        h_graph = global_mean_pool(h, batch)
         return self.mu_head(h_graph), self.logvar_head(h_graph)
 
 
@@ -35,12 +71,12 @@ class MLPDecoder(nn.Module):
         self.register_buffer("triu_idx", torch.triu_indices(max_nodes, max_nodes, offset=1))
 
     def forward(self, z):
-        probs = self.mlp(z)                                    # (B, output_size)
+        probs = self.mlp(z)
         B = z.size(0)
         adj = torch.zeros(B, self.max_nodes, self.max_nodes, device=z.device)
         adj[:, self.triu_idx[0], self.triu_idx[1]] = probs
-        adj = adj + adj.transpose(1, 2)                        # symmetrize
-        return adj                                             # (B, max_nodes, max_nodes)
+        adj = adj + adj.transpose(1, 2)
+        return adj
 
 
 class GraphVAE(nn.Module):
@@ -69,8 +105,9 @@ class GraphVAE(nn.Module):
     def sample(self, n: int = 1) -> list[torch.Tensor]:
         device = next(self.parameters()).device
         z = torch.randn(n, self.latent_dim, device=device)
-        adj_probs = self.decode(z)                             # (n, max_nodes, max_nodes)
-        adj = ((adj_probs + adj_probs.transpose(1, 2)) >= 1.0).float()
+        adj_probs = self.decode(z)
+        adj_probs = (adj_probs + adj_probs.transpose(1, 2)) / 2  # ensure symmetry
+        adj = (adj_probs >= 0.5).float()
         idx = torch.arange(self.max_nodes, device=device)
         adj[:, idx, idx] = 0.0
-        return [adj[i] for i in range(n)]
+        return [_ensure_connected(adj[i], adj_probs[i]) for i in range(n)]
