@@ -1,6 +1,7 @@
 import argparse
 import os
 
+import numpy as np
 import torch
 
 from data import load_mutag, to_adjacency_list
@@ -12,6 +13,7 @@ from evaluate import compute_metrics, plot_statistics, visualize_graphs, visuali
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int, default=64)
@@ -27,11 +29,20 @@ def main():
     parser.add_argument("--img-dir", default="results", help="directory to save all output figures")
     args = parser.parse_args()
 
+    # Set random seeds for reproducibility
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    # Ensure deterministic behavior
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     IN_CHANNELS = 7
     MAX_NODES = 28
     N_SAMPLES = args.samples
 
-    train_ds, _ = load_mutag()
+    train_ds, _ = load_mutag(seed=args.seed)
     train_adjs = to_adjacency_list(train_ds)
 
     img_dir = args.img_dir
